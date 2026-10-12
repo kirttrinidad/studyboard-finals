@@ -6,7 +6,7 @@ import { searchBooks } from "@/lib/openLibrary";
 // TODO (Step 2): Define a schema requiring a non-empty `q` string,
 // max 200 characters (same pattern as Week 7's validation schemas).
 const searchQuerySchema = z.object({
-    q: z.string().trim().min(1, "A search query is required").max(200),
+  q: z.string().trim().min(1, "A search query is required").max(200),
 });
 
 // GET /api/books?q=... — OUR OWN endpoint, which the browser calls.
@@ -31,11 +31,11 @@ const searchQuerySchema = z.object({
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const parsed = searchQuerySchema.safeParse({ q: searchParams.get("q") });
-
+    
     if (!parsed.success) {
         return NextResponse.json(
-            {error: parsed.error.issues[0].message}, 
-            {status: 400}
+            { error: parsed.error.issues[0].message },
+            { status: 400 }
         );
     }
 
@@ -43,12 +43,13 @@ export async function GET(request: Request) {
         const books = await searchBooks(parsed.data.q);
         return NextResponse.json(books);
     } catch (error) {
-        if (axios.isAxiosError(error)) {
+        if (axios.isAxiosError(error)){
             console.error("Open Library request failed:", error.message);
             return NextResponse.json(
-                {error: "Book search is temporarily unavailable. Please try again later."},
-                {status: 502}
-            );
+                { error: "Book search is temporarily unavailable. Please try again later." },
+                { status: 502 }
+
+            )
         }
         throw error;
     }
