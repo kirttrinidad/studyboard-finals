@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getGroupById, createTask } from "@/lib/data";
 import { createTaskSchema } from "@/lib/validations";
+import { emitGroup } from "@/lib/socket";
 
 export async function GET(
   request: Request,
@@ -51,5 +52,7 @@ export async function POST(
   }
 
   const newTask = await createTask(params.id, parsedResponse.data.title);
+  emitGroup(params.id, "task:created", newTask);
+
   return NextResponse.json(newTask, { status: 201 });
 }

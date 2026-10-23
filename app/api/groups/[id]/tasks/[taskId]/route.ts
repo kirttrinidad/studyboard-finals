@@ -1,169 +1,106 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { getGroupById, updateTask, deleteTask } from "@/lib/data";
+import { updateTaskSchema } from "@/lib/validations";
+import { emitGroup } from "@/lib/socket";
 
-// UPDATE TASK
 export async function PATCH(
   request: Request,
-  {
-    params,
-  }: {
-    params: {
-      id: string;
-      taskId: string;
-    };
-  }
+  { params }: { params: { id: string; taskId: string } }
 ) {
-  try {
-    const { id, taskId } = params;
+  const session = await getServerSession(authOptions);
 
-    if (!id || !taskId) {
-      return NextResponse.json(
-        {
-          error: "Group ID and Task ID are required",
-        },
-        { status: 400 }
-      );
-    }
-
-    const body = await request.json();
-
-    const task = await prisma.task.findFirst({
-      where: {
-        id: taskId,
-        groupId: id,
-      },
-    });
-
-    if (!task) {
-      return NextResponse.json(
-        {
-          error: "Task not found",
-        },
-        { status: 404 }
-      );
-    }
-
-    const updates: {
-      title?: string;
-      done?: boolean;
-    } = {};
-
-    // Update title if provided
-    if (body.title !== undefined) {
-      if (typeof body.title !== "string") {
-        return NextResponse.json(
-          {
-            error: "Title must be a string",
-          },
-          { status: 400 }
-        );
-      }
-
-      updates.title = body.title.trim();
-    }
-
-    // Update done if provided
-    if (body.done !== undefined) {
-      if (typeof body.done !== "boolean") {
-        return NextResponse.json(
-          {
-            error: "Done must be a boolean",
-          },
-          { status: 400 }
-        );
-      }
-
-      updates.done = body.done;
-    }
-
-    const updatedTask = await prisma.task.update({
-      where: {
-        id: taskId,
-      },
-      data: updates,
-    });
-
-    return NextResponse.json(updatedTask, {
-      status: 200,
-    });
-  } catch (error) {
-    console.error("UPDATE TASK ERROR:", error);
-
+  if (!session){
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to update task",
-      },
-      { status: 500 }
+      {error: "Unauthorized"},
+      {status: 401}
     );
   }
+
+  const body = await request.json();
+  const parsedResponse = updateTaskSchema.safeParse(body)
+   if ( !parsedResponse.success){
+    return NextResponse.json(
+      { error: parsedResponse.error.issues[0].message},
+      { status: 400 }
+    );
+  }
+
+  const group = await getGroupById(params.id);
+
+  if (!group) {
+    return NextResponse.json(
+      { error: "Group not found" }, 
+      { status: 404 }
+    );
+  }
+
+  if (group.ownerId !== session.user.id){
+    return NextResponse.json(
+      {error: "Only the owner can can modify this task"},
+      {status: 403}
+    );
+  } 
+
+
+  const updated = await updateTask(
+    params.id,
+    params.taskId,
+    parsedResponse.data
+  );
+
+  if (!updated) {
+    return NextResponse.json({ error: "Task not found" }, { status: 404 });
+  }
+
+  emitGroup(
+    params.id,
+    "task:updated",
+    updated,
+    request.headers.get("x-socket-id")
+  );
+
+  return NextResponse.json(updated);
 }
 
-// DELETE TASK
 export async function DELETE(
   request: Request,
-  {
-    params,
-  }: {
-    params: {
-      id: string;
-      taskId: string;
-    };
-  }
+  { params }: { params: { id: string; taskId: string } }
 ) {
-  try {
-    const { id, taskId } = params;
+  const session = await getServerSession(authOptions);
 
-    if (!id || !taskId) {
-      return NextResponse.json(
-        {
-          error: "Group ID and Task ID are required",
-        },
-        { status: 400 }
-      );
-    }
-
-    const task = await prisma.task.findFirst({
-      where: {
-        id: taskId,
-        groupId: id,
-      },
-    });
-
-    if (!task) {
-      return NextResponse.json(
-        {
-          error: "Task not found",
-        },
-        { status: 404 }
-      );
-    }
-
-    await prisma.task.delete({
-      where: {
-        id: taskId,
-      },
-    });
-
+  if (!session){
     return NextResponse.json(
-      {
-        message: "Task deleted successfully",
-      },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error("DELETE TASK ERROR:", error);
-
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to delete task",
-      },
-      { status: 500 }
+      {error: "Unauthorized"},
+      {status: 401}
     );
   }
+
+  const group = await getGroupById(params.id);
+  if (!group) {
+    return NextResponse.json({ error: "Group not found" }, { status: 404 });
+  }
+
+  if (group.ownerId !== session.user.id){
+    return NextResponse.json(
+      {error: "Only the group owner can can delete this task"},
+      {status: 403}
+    );
+  }
+
+  const deleted = await deleteTask(params.id, params.taskId);
+
+  if (!deleted) {
+    return NextResponse.json({ error: "Task not found" }, { status: 404 });
+  }
+
+  emitGroup(
+    params.id,
+    "task:deleted",
+    undefined,
+    request.headers.get("x-socket-id")
+  );
+
+  return NextResponse.json({ message: "Task deleted" });
 }
